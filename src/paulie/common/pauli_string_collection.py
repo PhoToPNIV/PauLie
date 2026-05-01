@@ -1018,4 +1018,4 @@ class PauliStringCollection:
         """
         if len(self.generators) == 0:
             return None
-        return PauliStringCollection(self.generators[1:]).nested_adjoint(self.generators[0])
+        return PauliStringCollection(self.generators[0:-1]).nested_adjoint(self.generators[-1])

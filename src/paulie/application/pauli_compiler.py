@@ -3,7 +3,7 @@
 :math:`\\mathcal{O}(N)` length sequence of Pauli strings that generates the target
 Pauli string via nested commutators.
 """
-
+import itertools
 from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -216,7 +216,15 @@ def left_map_over_a(
     v_to: PauliString,
     generators: list[PauliString],
 ) -> list[PauliString]:
-    """Find a left-only adjoint path from ``v_from`` to ``v_to`` using BFS."""
+    """
+    Find a left-only adjoint path from ``v_from`` to ``v_to`` using BFS.
+    Args:
+        v_from (PauliString): Starting Pauli string.
+        v_to (PauliString): Target Pauli string.
+        generators (list[PauliString]): Universal set.
+    Returns:
+        sequence (list[PauliString]): List of [A1,...,As-1] mapping from v_from to v_to.
+    """
     if v_from == v_to:
         return []
 
@@ -233,7 +241,6 @@ def left_map_over_a(
                 previous, used = parent[cursor]
                 sequence.append(used)
                 cursor = previous
-            sequence.reverse()
             return sequence
 
         for helper in current.get_anti_commutants(generators):
@@ -397,93 +404,22 @@ class OptimalPauliCompiler:
 
         return rec(0, 0, 0, 0, [])
 
-    def _case3_best_reordering(
+    def _permutation_adj(
         self,
-        g1: list[PauliString],
-        g2: list[PauliString],
-        a_ext: list[PauliString],
-        w_right: PauliString,
+        g: list[PauliString]
     ) -> list[PauliString] | None:
-        """Search for a valid reordering in the ``V = I`` and ``W != I`` case."""
-        g1_rev, g2_rev = list(reversed(g1)), list(reversed(g2))
-        candidates = [
-            list(g1) + list(a_ext) + list(g2_rev) + list(a_ext),
-            list(g1_rev) + list(a_ext) + list(g2) + list(a_ext),
-            list(a_ext) + list(g1) + list(a_ext) + list(g2_rev),
-            list(a_ext) + list(g1_rev) + list(a_ext) + list(g2),
-            list(g2) + list(a_ext) + list(g1_rev) + list(a_ext),
-            list(g2_rev) + list(a_ext) + list(g1) + list(a_ext),
-        ]
-        target_left = get_identity(self.k)
-        for sequence in candidates:
-            result = _evaluate_sequence(sequence)
-            if (
-                result is not None
-                and result.get_substring(0, self.k) == target_left
-                and result.get_substring(self.k, self.n_right) == w_right
-            ):
-                return sequence
+        """
+        Search for permutation of g that adj map is non-zero.
+        Args:
+            g (list[PauliString]): List of Pauli string before permutation.
+        Returns:
+            sequence (list[PauliString]): List of permuted Pauli string that adj map is non-zero.
+        """
 
-        blocks = [g1, g2, a_ext]
-        for perm in permutations(range(3)):
-            b0, b1, b2 = [blocks[i] for i in perm]
-            for r0 in (False, True):
-                for r1 in (False, True):
-                    for r2 in (False, True):
-                        sequence = (
-                            (list(reversed(b0)) if r0 else list(b0))
-                            + (list(reversed(b1)) if r1 else list(b1))
-                            + (list(reversed(b2)) if r2 else list(b2))
-                        )
-                        result = _evaluate_sequence(sequence)
-                        if (
-                            result is not None
-                            and result.get_substring(0, self.k) == target_left
-                            and result.get_substring(self.k, self.n_right) == w_right
-                        ):
-                            return sequence
+        for perm in itertools.permutations(g):
 
-        for g1_block in (g1, list(reversed(g1))):
-            for g2_block in (g2, list(reversed(g2))):
-                for a_block in (a_ext, list(reversed(a_ext))):
-                    for sequence in self._all_interleavings_preserving(g1_block, g2_block, a_block):
-                        result = _evaluate_sequence(sequence)
-                        if (
-                            result is not None
-                            and result.get_substring(0, self.k) == target_left
-                            and result.get_substring(self.k, self.n_right) == w_right
-                        ):
-                            return sequence
-
-        a_options = (a_ext, list(reversed(a_ext)))
-        for g1_block in (g1, g1_rev):
-            for g2_block in (g2, g2_rev):
-                for a1 in a_options:
-                    for a2 in a_options:
-                        for sequence in (
-                            list(g1_block) + list(a1) + list(g2_block) + list(a2),
-                            list(g2_block) + list(a1) + list(g1_block) + list(a2),
-                            list(a1) + list(g1_block) + list(a2) + list(g2_block),
-                            list(a1) + list(g2_block) + list(a2) + list(g1_block),
-                        ):
-                            result = _evaluate_sequence(sequence)
-                            if (
-                                result is not None
-                                and result.get_substring(0, self.k) == target_left
-                                and result.get_substring(self.k, self.n_right) == w_right
-                            ):
-                                return sequence
-                        for sequence in self._all_interleavings_preserving4(
-                                g1_block, g2_block, a1, a2
-                        ):
-                            result = _evaluate_sequence(sequence)
-                            if (
-                                result is not None
-                                and result.get_substring(0, self.k) == target_left
-                                and result.get_substring(self.k, self.n_right) == w_right
-                            ):
-                                return sequence
-        return None
+            if _evaluate_sequence(perm) is not None:
+                return perm
 
     def _bfs_case3(
         self, w_right: PauliString, depth_cap: int, node_cap: int
@@ -535,43 +471,45 @@ class OptimalPauliCompiler:
                 do not match the configured partition.
             RuntimeError: If no valid sequence is found.
         """
+
         if len(v_left) != self.k or len(w_right) != self.n_right:
             raise ValueError(
                 f"Expected v_left of length {self.k} and w_right of length {self.n_right}, "
                 f"got {len(v_left)} and {len(w_right)}."
             )
-        if w_right.is_identity():
-            for seed in self.a_left:
-                try:
-                    seq_a = left_map_over_a(seed, v_left, self.a_left)
+
+        if w_right.is_identity(): #Algorithm 2, line 2
+            for a_s in self.a_left: #Algorithm 2, line 3: loop through As in default universal set TODO: change to user define universal set
+                try: #Algorithm 2, line 3: Choose [A1,...,As]
+                    seq_a = left_map_over_a(a_s, v_left, self.a_left) #Find [A1,...,As-1]
+                    seq_a.append(a_s)
                 except RuntimeError:
                     continue
-                sequence: list[PauliString] | None = (
-                    [self.extend_left(seed)] + [self.extend_left(a) for a in seq_a]
-                )
-                result = None
-                if sequence is not None:
-                    result = _evaluate_sequence(sequence)
-                if (
-                    result is not None
-                    and result.get_substring(0, self.k) == v_left
-                    and result.get_substring(self.k, self.n_right) == w_right
-                ):
-                    if sequence is not None:
-                        return _sequence_to_paulie_orientation(sequence)
+                sequence: list[PauliString] | None = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 4: Extend to full system [A1 ⊗ I,...,As ⊗ I]
+                return sequence #Return the first found map
+                ### No need to check
+                #result = None
+                #if sequence is not None:
+                #    result = _evaluate_sequence(sequence) # Calculate adjoint map of [A1 ⊗ I,...,As ⊗ I]
+                #    if (
+                #        result.get_substring(0, self.k) == v_left #Compare left system of result to v_left
+                #        and result.get_substring(self.k, self.n_right) == w_right #Compare right system of result to w_right
+                #    ):
+                #        return _sequence_to_paulie_orientation(sequence) #Return the first found map
             raise RuntimeError("Left-only mapping failed.")
 
-        if v_left.is_identity():
-            for w1, w2 in self._candidate_decompositions(w_right):
-                g1 = self.sub.subsystem_compiler(w1)
-                g2 = self.sub.subsystem_compiler(w2)
-                v1_prime = self._left_factor_from_sequence(g1)
-                v2_prime = self._left_factor_from_sequence(g2)
-                a_seq = left_map_over_a(v2_prime, v1_prime, self.a_left)
-                a_ext = [self.extend_left(a) for a in a_seq]
-                sequence = self._case3_best_reordering(g1, g2, a_ext, w_right)
+        elif v_left.is_identity(): #Algorithm 2, line 5
+            for w1, w2 in self._candidate_decompositions(w_right): #Algorithm 2, line 6: Choose w1,w2 s.t. iw_right=[w1,w2]
+                g1 = self.sub.subsystem_compiler(w1) #Algorithm 2, line 7.1
+                v1_prime = self._left_factor_from_sequence(g1) #Algorithm 2, line 7.2
+                g2 = self.sub.subsystem_compiler(w2) #Algorithm 2, line 8.1
+                v2_prime = self._left_factor_from_sequence(g2) #Algorithm 2, line 8.2
+                seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left) #Algorithm 2, line 9: Choose [A1,...,As]
+                ext_a = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 10: Extend to full system [A1 ⊗ I,...,As ⊗ I]
+                g = [*g1, *g2, *ext_a]  #Algorithm 2, line 10: Concatenation of sequence
+                sequence = self._permutation_adj(g) #Algorithm 2, line 11: Choose permutation of g s.t. sequence != 0
                 if sequence is not None:
-                    return _sequence_to_paulie_orientation(sequence)
+                    return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
 
             seq_fb = self._bfs_case3(w_right, self.fallback_depth, self.fallback_nodes)
             if seq_fb is not None:
@@ -586,32 +524,32 @@ class OptimalPauliCompiler:
             g2 = self.sub.subsystem_compiler(w2)
             v1_prime = self._left_factor_from_sequence(g1)
             v2_prime = self._left_factor_from_sequence(g2)
-            a_seq = left_map_over_a(v2_prime, v1_prime, self.a_left)
-            a_ext = [self.extend_left(a) for a in a_seq]
+            seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left)
+            ext_a = [self.extend_left(a) for a in seq_a]
             return _sequence_to_paulie_orientation(
-                list(reversed(g1)) + a_ext + list(reversed(g2))
+                list(reversed(g1)) + ext_a + list(reversed(g2))
             )
 
-        g_right = self.sub.subsystem_compiler(w_right)
-        v_prime = self._left_factor_from_sequence(g_right)
-        seq = left_map_over_a(v_prime, v_left, self.a_left)
-        candidates = [
-            list(g_right) + [self.extend_left(a) for a in seq],
-            [self.extend_left(a) for a in seq] + list(g_right),
-            list(reversed(g_right)) + [self.extend_left(a) for a in seq],
-        ]
-        for sequence in candidates:
-            result = _evaluate_sequence(sequence)
-            if (
-                result is not None
-                and result.get_substring(0, self.k) == v_left
-                and result.get_substring(self.k, self.n_right) == w_right
-            ):
-                return _sequence_to_paulie_orientation(sequence)
-        return _sequence_to_paulie_orientation(
-            list(g_right) + [self.extend_left(a) for a in seq]
-        )
-
+        else:
+            g_right = self.sub.subsystem_compiler(w_right)
+            v_prime = self._left_factor_from_sequence(g_right)
+            seq = left_map_over_a(v_prime, v_left, self.a_left)
+            candidates = [
+                list(g_right) + [self.extend_left(a) for a in seq],
+                [self.extend_left(a) for a in seq] + list(g_right),
+                list(reversed(g_right)) + [self.extend_left(a) for a in seq],
+            ]
+            for sequence in candidates:
+                result = _evaluate_sequence(sequence)
+                if (
+                    result is not None
+                    and result.get_substring(0, self.k) == v_left
+                    and result.get_substring(self.k, self.n_right) == w_right
+                ):
+                    return _sequence_to_paulie_orientation(sequence)
+            return _sequence_to_paulie_orientation(
+                list(g_right) + [self.extend_left(a) for a in seq]
+            )
 
 def construct_universal_set(n_total: int, k: int) -> list[PauliString]:
     """Construct the universal generator set used by the compiler.
