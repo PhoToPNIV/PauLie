@@ -147,34 +147,97 @@ class SubsystemCompiler:
     ) -> tuple[PauliString, PauliString]:
         """Return the accumulated left and right factors after ``index``."""
         p_left = get_identity(self.k)
-        for j in range(index + 1, len(ui_bi)):
-            p_left = p_left @ ui_bi[j][0]
+        for j in range(index + 1, len(ui_bi)): #Product in Algorithm 3, line 6
+            p_left = p_left @ ui_bi[j][0] #Product of ui for index j>i
         for helper in helpers:
-            p_left = p_left @ helper
+            p_left = p_left @ helper #Product of a in h
 
         p_right = get_identity(self.n_right)
         for j in range(index + 1, len(ui_bi)):
-            p_right = p_right @ ui_bi[j][1]
+            p_right = p_right @ ui_bi[j][1] #Product of bi for index j>i
         return p_left, p_right
+
+    def _product_uj_a(
+        self,
+        index: int,
+        ui_bi: list[tuple[PauliString, PauliString]],
+        helpers: list[PauliString],
+    ) -> PauliString:
+        """
+        Return product of Uj right multiply with product of A for index j to r-1.
+        Args:
+            index (int): Index of Uj.
+            ui_bi (list[tuple(PauliString, PauliString)]): List of (Uj, Bj) pairs.
+            helpers (list[PauliString]): List of A
+        Returns:
+            prod_uj_a (PauliString): Product of Uj right multiply with product of A
+        """
+        prod_uj = get_identity(self.k)
+        for j in range(index, len(ui_bi)): #Product in Algorithm 3, line 6
+            prod_uj = prod_uj @ ui_bi[j][0] #Product of Uj
+
+        prod_a = get_identity(self.k)
+        for a in helpers:
+            prod_a = prod_a @ a #Product of A
+
+        prod_uj_a = prod_uj @ prod_a #(Product of Uj)(Product of A)
+
+        return prod_uj_a
+
+    def _product_uj_bj(
+        self,
+        index: int,
+        ui_bi: list[tuple[PauliString, PauliString]],
+    ) -> PauliString:
+        """
+        Return product of Uj ⊗ Bj for index j to r-1.
+        Args:
+            index (int): Index of Uj.
+            ui_bi (list[tuple(PauliString, PauliString)]): List of (Uj, Bj) pairs.
+        Returns:
+            prod_uj_bj (PauliString): Product of Uj ⊗ Bj
+        """
+        prod_uj_bj = get_identity(self.n_total)
+        for j in range(index, len(ui_bi)): #Product in Algorithm 3, line 6
+            prod_uj_bj = prod_uj_bj @ ui_bi[j][0].tensor(ui_bi[j][1]) #Product of uj ⊗ bj
+
+        return prod_uj_bj
+
+    def _product_a_i(
+        self,
+        helpers: list[PauliString],
+    ) -> PauliString:
+        """
+        Return product of A ⊗ I in helpers.
+        Args:
+            helpers (list[PauliString]): List of A
+        Returns:
+            prod_a_i (PauliString): Product of A ⊗ I
+        """
+        prod_a_i = get_identity(self.n_total)
+        for a in helpers:
+            prod_a_i = prod_a_i @ self.extend_left(a) #Product of A
+
+        return prod_a_i
 
     def subsystem_compiler(self, w_right: PauliString) -> list[PauliString]:
         """Compile a target supported only on the right subsystem."""
         assert len(w_right) == self.n_right
 
-        for ui_bi in self.factor_w_orders(w_right):
+        for ui_bi in self.factor_w_orders(w_right): #Algorithm 3, line 1: Choose [u1 ⊗ b1,...,ur ⊗ br] s.t. b1⋅⋅⋅br=w_right
             if not ui_bi:
                 return []
 
-            index = len(ui_bi) - 1
-            sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])]
-            helpers: list[PauliString] = []
+            index = len(ui_bi) - 1 #Algorithm 3, line 2
+            sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])] #Algorithm 3, line 3: Last pair ur ⊗ br
+            helpers: list[PauliString] = [] #Algorithm 3, line 4
             helper_uses: dict[int, int] = {}
 
-            while index >= 1:
+            while index >= 1: #Algorithm 3, line 5: Loop from index r-1 to 1
                 u_i, b_i = ui_bi[index]
                 p_left, p_right = self._rest_full_after(ui_bi, index, helpers)
 
-                if (p_left @ u_i).is_identity():
+                if (p_left @ u_i).is_identity(): #Algorithm 3, line 6
                     count = helper_uses.get(index, 0)
                     if count >= 1:
                         sequence.append(self.extend_pair(u_i, b_i))
