@@ -136,7 +136,7 @@ class SubsystemCompiler:
         for aprime in u_i.get_anti_commutants(self.left_pool): #Algorithm 3, line 11.2: Universal set of A' that anti-commute with Ui
 
             if aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
-                #if aprime != prod_uj_a: #Algorithm 3, line 11.3
+                if aprime != prod_uj_a: #Algorithm 3, line 11.3
                     return aprime
         raise RuntimeError("Failed to find A' in iP_k^*.")
 
