@@ -590,25 +590,13 @@ class OptimalPauliCompiler:
             )
 
         else:
-            g_right = self.sub.subsystem_compiler(w_right)
-            v_prime = self._left_factor_from_sequence(g_right)
-            seq = left_map_over_a(v_prime, v_left, self.a_left)
-            candidates = [
-                list(g_right) + [self.extend_left(a) for a in seq],
-                [self.extend_left(a) for a in seq] + list(g_right),
-                list(reversed(g_right)) + [self.extend_left(a) for a in seq],
-            ]
-            for sequence in candidates:
-                result = _evaluate_sequence(sequence)
-                if (
-                    result is not None
-                    and result.get_substring(0, self.k) == v_left
-                    and result.get_substring(self.k, self.n_right) == w_right
-                ):
-                    return _sequence_to_paulie_orientation(sequence)
-            return _sequence_to_paulie_orientation(
-                list(g_right) + [self.extend_left(a) for a in seq]
-            )
+            g_right = self.sub.subsystem_compiler(w_right) #Algorithm 2, line 14.1
+            v_prime = self._left_factor_from_sequence(g_right) #Algorithm 2, line 14.2
+            seq_a = left_map_over_a(v_prime, v_left, self.a_left) #Algorithm 2, line 15: Choose [A1,...,As]
+            ext_a = [self.extend_left(a) for a in seq_a]  # Algorithm 2, line 16: Extend to full system [A1 ⊗ I,...,As ⊗ I]
+            sequence = [*ext_a,*g_right]  # Algorithm 2, line 16: Concatenation of sequence
+
+            return sequence
 
 def construct_universal_set(n_total: int, k: int) -> list[PauliString]:
     """Construct the universal generator set used by the compiler.
