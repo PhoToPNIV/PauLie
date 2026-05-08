@@ -131,10 +131,10 @@ class SubsystemCompiler:
                         return a1, a2
         raise RuntimeError("Failed to find A1,A2 in iP_k^*.")
 
-    def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj1_a: PauliString) -> PauliString:
-        """Choose a helper ``A'`` that anticommutes with ``u_i`` and commutes with ``prod_uj1_a``."""
+    def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj_gt_a: PauliString) -> PauliString:
+        """Choose a helper ``A'`` that anticommutes with ``u_i`` and commutes with ``prod_uj_gt_a``."""
         for aprime in u_i.get_anti_commutants(self.left_pool): #Algorithm 3, line 11.2: Universal set of A' that anti-commute with Ui
-            if not aprime | prod_uj1_a: #Algorithm 3, line 11.1
+            if not aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
                 if aprime != prod_uj_a: #Algorithm 3, line 11.3
                     return aprime
         raise RuntimeError("Failed to find A' in iP_k^*.")
@@ -229,18 +229,18 @@ class SubsystemCompiler:
             if not ui_bi:
                 return []
 
-            index = len(ui_bi) - 1 #Algorithm 3, line 2
+            index = len(ui_bi) - 2 #Algorithm 3, line 2
             sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])] #Algorithm 3, line 3: Last pair ur ⊗ br
             helpers: list[PauliString] = [] #Algorithm 3, line 4
             helper_uses: dict[int, int] = {}
 
-            while index >= 1: #Algorithm 3, line 5: Loop from index r-1 to 1
+            while index >= 0: #Algorithm 3, line 5: Loop from index r-1 to 1
                 u_i, b_i = ui_bi[index]
-                u_b_i = self.extend_pair(u_i, b_i)  # Ui ⊗ Bi
+                ub_i = self.extend_pair(u_i, b_i)  # Ui ⊗ Bi
                 prod_uj_a = self._product_uj_a(index, ui_bi, helpers) #(Product Uj)(Product A)
-                prod_uj1_bj = self._product_uj_bj(index + 1, ui_bi) #Product Uj ⊗ Bj
+                prod_ub_j_gt = self._product_uj_bj(index + 1, ui_bi) #Product Uj>i ⊗ Bj>i
                 prod_a_iden = self._product_a_iden(helpers) #Product A ⊗ I
-                prod_uj_bj_prod_a_iden = prod_uj1_bj @ prod_a_iden #(Product Uj ⊗ Bj)(Product A ⊗ I)
+                prod_ub_j_gt_prod_a_iden = prod_ub_j_gt @ prod_a_iden #(Product Uj>i ⊗ Bj>i)(Product A ⊗ I)
 
                 if prod_uj_a.is_identity(): #Algorithm 3, line 6
                     count = helper_uses.get(index, 0)
@@ -256,22 +256,22 @@ class SubsystemCompiler:
                     sequence.append(self.extend_left(a2)) #Algorithm 3, line 9
                     continue
 
-                elif u_b_i | prod_uj_bj_prod_a_iden: #Algorithm 3, line 10
+                elif ub_i | prod_ub_j_gt_prod_a_iden: #Algorithm 3, line 10
                     count = helper_uses.get(index, 0)
                     if count >= 1:
-                        sequence.append(u_b_i)
+                        sequence.append(ub_i)
                         index -= 1
                         continue
 
-                    prod_uj1_a = self._product_uj_a(index + 1, ui_bi, helpers)  # (Product Uj)(Product A)
-                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj1_a) #Algorithm 3, line 11
+                    prod_uj_gt_a = self._product_uj_a(index + 1, ui_bi, helpers) # (Product Uj>i)(Product A)
+                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a) #Algorithm 3, line 11
                     helpers = [a_prime] #Algorithm 3, line 12
                     helper_uses[index] = count + 1
                     sequence.append(self.extend_left(a_prime)) #Algorithm 3, line 13
                     continue
 
                 else:
-                    sequence.append(u_b_i) #Algorithm 3, line 15
+                    sequence.append(ub_i) #Algorithm 3, line 15
                     index -= 1 #Algorithm 3, line 16
 
             return sequence
