@@ -694,7 +694,7 @@ class OptimalPauliCompiler:
             v_prime = self._left_factor_from_sequence(g_right) #Algorithm 2, line 14.2
             seq_a = left_map_over_a(v_prime, v_left, self.a_left) #Algorithm 2, line 15: Choose [A1,...,As]
             ext_a = [self.extend_left(a) for a in seq_a]  # Algorithm 2, line 16: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-            sequence = [*ext_a,*g_right]  # Algorithm 2, line 16: Concatenation of sequence
+            sequence = _sequence_to_paulie_orientation([*ext_a,*g_right])  # Algorithm 2, line 16: Concatenation of sequence
 
             return sequence
 
