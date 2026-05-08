@@ -131,13 +131,12 @@ class SubsystemCompiler:
                         return a1, a2
         raise RuntimeError("Failed to find A1,A2 in iP_k^*.")
 
-    def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj_gt_a: PauliString, exclude: list[PauliString] = []) -> PauliString:
+    def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj_gt_a: PauliString) -> PauliString:
         """Choose a helper ``A'`` that anticommutes with ``u_i`` and commutes with ``prod_uj_gt_a``."""
         for aprime in u_i.get_anti_commutants(self.left_pool): #Algorithm 3, line 11.2: Universal set of A' that anti-commute with Ui
-            if aprime in exclude:
-                continue
-            if not aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
-                if aprime != prod_uj_a: #Algorithm 3, line 11.3
+
+            if aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
+                #if aprime != prod_uj_a: #Algorithm 3, line 11.3
                     return aprime
         raise RuntimeError("Failed to find A' in iP_k^*.")
 
@@ -231,12 +230,12 @@ class SubsystemCompiler:
             if not ui_bi:
                 return []
 
-            index = len(ui_bi) - 2 #Algorithm 3, line 2
+            index = len(ui_bi) - 1 #Algorithm 3, line 2
             sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])] #Algorithm 3, line 3: Last pair ur ⊗ br
             helpers: list[PauliString] = [] #Algorithm 3, line 4
-            helper_used: dict[int, list[PauliString]] = {}  # tracks helpers tried per index
+            helper_uses: dict[int, int] = {}
 
-            while index >= 0: #Algorithm 3, line 5: Loop from index r-1 to 1
+            while index >= 1: #Algorithm 3, line 5: Loop from index r-1 to 1
                 u_i, b_i = ui_bi[index]
                 ub_i = self.extend_pair(u_i, b_i)  # Ui ⊗ Bi
                 prod_uj_a = self._product_uj_a(index, ui_bi, helpers) #(Product Uj)(Product A)
@@ -246,25 +245,37 @@ class SubsystemCompiler:
                 prod_ub_j_gt_prod_a_iden = prod_ub_j_gt @ prod_a_iden #(Product Uj>i ⊗ Bj>i)(Product A ⊗ I)
 
                 if prod_uj_a.is_identity(): #Algorithm 3, line 6
+
+                    count = helper_uses.get(index, 0)
+                    if count >= 1:
+                        sequence.append(self.extend_pair(u_i, b_i))
+                        index -= 1
+                        continue
+
                     a1, a2 = self._choose_a1_a2(u_i) #Algorithm 3, line 7
                     helpers = [a1, a2] #Algorithm 3, line 8
+                    helper_uses[index] = count + 1
                     sequence.append(self.extend_left(a1)) #Algorithm 3, line 9
                     sequence.append(self.extend_left(a2)) #Algorithm 3, line 9
                     continue
 
                 elif ub_i | prod_ub_j_gt_prod_a_iden: #Algorithm 3, line 10
-                    exclude = helper_used.get(index, [])
-                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a, exclude=exclude) #Algorithm 3, line 11
+
+                    count = helper_uses.get(index, 0)
+                    if count >= 1:
+                        sequence.append(ub_i)
+                        index -= 1
+                        continue
+
+                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a) #Algorithm 3, line 11
                     helpers = [a_prime] #Algorithm 3, line 12
-                    helper_used.setdefault(index, []).append(a_prime)
+                    helper_uses[index] = count + 1
                     sequence.append(self.extend_left(a_prime)) #Algorithm 3, line 13
                     continue
 
                 else:
                     sequence.append(ub_i) #Algorithm 3, line 15
                     index -= 1 #Algorithm 3, line 16
-
-            sequence.reverse()
 
             return sequence
 
@@ -480,6 +491,94 @@ class OptimalPauliCompiler:
             if _evaluate_sequence(perm) is not None:
                 return perm
 
+    def _case3_best_reordering(
+        self,
+        g1: list[PauliString],
+        g2: list[PauliString],
+        a_ext: list[PauliString],
+        w_right: PauliString,
+    ) -> list[PauliString] | None:
+        """Search for a valid reordering in the ``V = I`` and ``W != I`` case."""
+        g1_rev, g2_rev = list(reversed(g1)), list(reversed(g2))
+        candidates = [
+            list(g1) + list(a_ext) + list(g2_rev) + list(a_ext),
+            list(g1_rev) + list(a_ext) + list(g2) + list(a_ext),
+            list(a_ext) + list(g1) + list(a_ext) + list(g2_rev),
+            list(a_ext) + list(g1_rev) + list(a_ext) + list(g2),
+            list(g2) + list(a_ext) + list(g1_rev) + list(a_ext),
+            list(g2_rev) + list(a_ext) + list(g1) + list(a_ext),
+        ]
+        target_left = get_identity(self.k)
+        for sequence in candidates:
+            result = _evaluate_sequence(sequence)
+            if (
+                result is not None
+                and result.get_substring(0, self.k) == target_left
+                and result.get_substring(self.k, self.n_right) == w_right
+            ):
+                return sequence
+
+        blocks = [g1, g2, a_ext]
+        for perm in permutations(range(3)):
+            b0, b1, b2 = [blocks[i] for i in perm]
+            for r0 in (False, True):
+                for r1 in (False, True):
+                    for r2 in (False, True):
+                        sequence = (
+                            (list(reversed(b0)) if r0 else list(b0))
+                            + (list(reversed(b1)) if r1 else list(b1))
+                            + (list(reversed(b2)) if r2 else list(b2))
+                        )
+                        result = _evaluate_sequence(sequence)
+                        if (
+                            result is not None
+                            and result.get_substring(0, self.k) == target_left
+                            and result.get_substring(self.k, self.n_right) == w_right
+                        ):
+                            return sequence
+
+        for g1_block in (g1, list(reversed(g1))):
+            for g2_block in (g2, list(reversed(g2))):
+                for a_block in (a_ext, list(reversed(a_ext))):
+                    for sequence in self._all_interleavings_preserving(g1_block, g2_block, a_block):
+                        result = _evaluate_sequence(sequence)
+                        if (
+                            result is not None
+                            and result.get_substring(0, self.k) == target_left
+                            and result.get_substring(self.k, self.n_right) == w_right
+                        ):
+                            return sequence
+
+        a_options = (a_ext, list(reversed(a_ext)))
+        for g1_block in (g1, g1_rev):
+            for g2_block in (g2, g2_rev):
+                for a1 in a_options:
+                    for a2 in a_options:
+                        for sequence in (
+                            list(g1_block) + list(a1) + list(g2_block) + list(a2),
+                            list(g2_block) + list(a1) + list(g1_block) + list(a2),
+                            list(a1) + list(g1_block) + list(a2) + list(g2_block),
+                            list(a1) + list(g2_block) + list(a2) + list(g1_block),
+                        ):
+                            result = _evaluate_sequence(sequence)
+                            if (
+                                result is not None
+                                and result.get_substring(0, self.k) == target_left
+                                and result.get_substring(self.k, self.n_right) == w_right
+                            ):
+                                return sequence
+                        for sequence in self._all_interleavings_preserving4(
+                                g1_block, g2_block, a1, a2
+                        ):
+                            result = _evaluate_sequence(sequence)
+                            if (
+                                result is not None
+                                and result.get_substring(0, self.k) == target_left
+                                and result.get_substring(self.k, self.n_right) == w_right
+                            ):
+                                return sequence
+        return None
+
     def _bfs_case3(
         self, w_right: PauliString, depth_cap: int, node_cap: int
     ) -> list[PauliString] | None:
@@ -565,8 +664,9 @@ class OptimalPauliCompiler:
                 v2_prime = self._left_factor_from_sequence(g2) #Algorithm 2, line 8.2
                 seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left) #Algorithm 2, line 9: Choose [A1,...,As]
                 ext_a = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 10: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-                g = [*g1, *g2, *ext_a]  #Algorithm 2, line 10: Concatenation of sequence
-                sequence = self._permutation_adj(g) #Algorithm 2, line 11: Choose permutation of g s.t. sequence != 0
+                #g = [*g1, *g2, *ext_a]  #Algorithm 2, line 10: Concatenation of sequence
+                #sequence = self._permutation_adj(g) #Algorithm 2, line 11: Choose permutation of g s.t. sequence != 0
+                sequence = self._case3_best_reordering(g1, g2, ext_a, w_right)
                 if sequence is not None:
                     return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
 
