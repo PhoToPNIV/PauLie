@@ -134,8 +134,7 @@ class SubsystemCompiler:
     def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj_gt_a: PauliString) -> PauliString:
         """Choose a helper ``A'`` that anticommutes with ``u_i`` and commutes with ``prod_uj_gt_a``."""
         for aprime in u_i.get_anti_commutants(self.left_pool): #Algorithm 3, line 11.2: Universal set of A' that anti-commute with Ui
-
-            if aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
+            if not aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
                 if aprime != prod_uj_a: #Algorithm 3, line 11.3
                     return aprime
         raise RuntimeError("Failed to find A' in iP_k^*.")
@@ -230,12 +229,11 @@ class SubsystemCompiler:
             if not ui_bi:
                 return []
 
-            index = len(ui_bi) - 1 #Algorithm 3, line 2
+            index = len(ui_bi) - 2 #Algorithm 3, line 2
             sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])] #Algorithm 3, line 3: Last pair ur ⊗ br
             helpers: list[PauliString] = [] #Algorithm 3, line 4
-            helper_uses: dict[int, int] = {}
 
-            while index >= 1: #Algorithm 3, line 5: Loop from index r-1 to 1
+            while index >= 0: #Algorithm 3, line 5: Loop from index r-1 to 1
                 u_i, b_i = ui_bi[index]
                 ub_i = self.extend_pair(u_i, b_i)  # Ui ⊗ Bi
                 prod_uj_a = self._product_uj_a(index, ui_bi, helpers) #(Product Uj)(Product A)
@@ -245,31 +243,16 @@ class SubsystemCompiler:
                 prod_ub_j_gt_prod_a_iden = prod_ub_j_gt @ prod_a_iden #(Product Uj>i ⊗ Bj>i)(Product A ⊗ I)
 
                 if prod_uj_a.is_identity(): #Algorithm 3, line 6
-
-                    count = helper_uses.get(index, 0)
-                    if count >= 1:
-                        sequence.append(self.extend_pair(u_i, b_i))
-                        index -= 1
-                        continue
-
                     a1, a2 = self._choose_a1_a2(u_i) #Algorithm 3, line 7
-                    helpers = [a1, a2] #Algorithm 3, line 8
-                    helper_uses[index] = count + 1
+                    helpers.append(a1) #Algorithm 3, line 8
+                    helpers.append(a2) #Algorithm 3, line 8
                     sequence.append(self.extend_left(a1)) #Algorithm 3, line 9
                     sequence.append(self.extend_left(a2)) #Algorithm 3, line 9
                     continue
 
                 elif ub_i | prod_ub_j_gt_prod_a_iden: #Algorithm 3, line 10
-
-                    count = helper_uses.get(index, 0)
-                    if count >= 1:
-                        sequence.append(ub_i)
-                        index -= 1
-                        continue
-
                     a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a) #Algorithm 3, line 11
-                    helpers = [a_prime] #Algorithm 3, line 12
-                    helper_uses[index] = count + 1
+                    helpers.append(a_prime) #Algorithm 3, line 12
                     sequence.append(self.extend_left(a_prime)) #Algorithm 3, line 13
                     continue
 
@@ -277,7 +260,7 @@ class SubsystemCompiler:
                     sequence.append(ub_i) #Algorithm 3, line 15
                     index -= 1 #Algorithm 3, line 16
 
-            return sequence
+            return sequence[::-1]
 
         return []
 
@@ -363,8 +346,6 @@ class OptimalPauliCompiler:
     def _left_factor_from_sequence(self, ops: list[PauliString]) -> PauliString:
         """Extract the left factor of a compiled right-subsystem sequence."""
         result = _evaluate_sequence(ops)
-        if result is None:
-            return get_single(self.k, 0, "X")
         return result.get_substring(0, self.k)
 
     def _candidate_decompositions(
@@ -670,6 +651,7 @@ class OptimalPauliCompiler:
                 if sequence is not None:
                     return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
 
+            ############# Require to check code in this block #############
             seq_fb = self._bfs_case3(w_right, self.fallback_depth, self.fallback_nodes)
             if seq_fb is not None:
                 return _sequence_to_paulie_orientation(seq_fb)
@@ -688,13 +670,13 @@ class OptimalPauliCompiler:
             return _sequence_to_paulie_orientation(
                 list(reversed(g1)) + ext_a + list(reversed(g2))
             )
-
+            ################################################################
         else:
             g_right = self.sub.subsystem_compiler(w_right) #Algorithm 2, line 14.1
             v_prime = self._left_factor_from_sequence(g_right) #Algorithm 2, line 14.2
             seq_a = left_map_over_a(v_prime, v_left, self.a_left) #Algorithm 2, line 15: Choose [A1,...,As]
             ext_a = [self.extend_left(a) for a in seq_a]  # Algorithm 2, line 16: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-            sequence = _sequence_to_paulie_orientation([*ext_a,*g_right])  # Algorithm 2, line 16: Concatenation of sequence
+            sequence = [*ext_a,*g_right]  # Algorithm 2, line 16: Concatenation of sequence
 
             return sequence
 
