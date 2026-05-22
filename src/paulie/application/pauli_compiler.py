@@ -3,31 +3,24 @@
 :math:`\\mathcal{O}(N)` length sequence of Pauli strings that generates the target
 Pauli string via nested commutators.
 """
-import itertools
 from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass
-from itertools import permutations
 from typing import Iterable
 
-from paulie.common.two_local_generators import G_LIE
 from paulie.common.pauli_string_bitarray import PauliString
 from paulie.common.pauli_string_collection import PauliStringCollection
 from paulie.common.pauli_string_factory import get_identity, get_pauli_string, get_single
-from paulie.application.get_optimal_su2_n import get_optimal_su_2_n_generators
-
 
 def _evaluate_sequence(sequence: list[PauliString]) -> PauliString | None:
     """Evaluate a sequence stored as ``[base, A1, ..., Am]``."""
     return PauliStringCollection(sequence).evaluate_commutator_sequence()
-
 
 def _evaluate_paulie_orientation(sequence: list[PauliString]) -> PauliString | None:
     """Evaluate a sequence stored as ``[Am, ..., A1, base]``."""
     if not sequence:
         return None
     return PauliStringCollection(sequence[:-1]).nested_adjoint(sequence[-1])
-
 
 def _sequence_to_paulie_orientation(sequence: list[PauliString]) -> list[PauliString]:
     """Convert ``[base, A1, ..., Am]`` to PauLie's ``nested_adjoint`` orientation."""
@@ -147,11 +140,9 @@ def choose_u_for_b(k: int) -> PauliString:
     """Choose the fixed left tag used when coupling to right-side generators."""
     return get_single(k, 0, "X")
 
-
 def _all_left_paulis(k: int) -> list[PauliString]:
     """Enumerate all non-identity Pauli strings on ``k`` qubits."""
     return [p for p in get_identity(k).gen_all_pauli_strings() if not p.is_identity()]
-
 
 @dataclass
 class SubsystemCompilerConfig:
@@ -159,7 +150,6 @@ class SubsystemCompilerConfig:
 
     k_left: int
     n_total: int
-
 
 class SubsystemCompiler:
     """Compiler for the right subsystem contribution."""
@@ -405,7 +395,6 @@ def left_map_over_a(
 
     raise RuntimeError("Left map BFS failed.")
 
-
 @dataclass
 class PauliCompilerConfig:
     """Configuration of the optimal compiler."""
@@ -606,15 +595,6 @@ class OptimalPauliCompiler:
                     continue
                 sequence: list[PauliString] | None = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 4: Extend to full system [A1 ⊗ I,...,As ⊗ I]
                 return sequence #Return the first found map
-                ### No need to check
-                #result = None
-                #if sequence is not None:
-                #    result = _evaluate_sequence(sequence) # Calculate adjoint map of [A1 ⊗ I,...,As ⊗ I]
-                #    if (
-                #        result.get_substring(0, self.k) == v_left #Compare left system of result to v_left
-                #        and result.get_substring(self.k, self.n_right) == w_right #Compare right system of result to w_right
-                #    ):
-                #        return _sequence_to_paulie_orientation(sequence) #Return the first found map
             raise RuntimeError("Left-only mapping failed.")
 
         elif v_left.is_identity(): #Algorithm 2, line 5
