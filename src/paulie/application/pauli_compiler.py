@@ -10,9 +10,11 @@ from dataclasses import dataclass
 from itertools import permutations
 from typing import Iterable
 
+from paulie.common.two_local_generators import G_LIE
 from paulie.common.pauli_string_bitarray import PauliString
 from paulie.common.pauli_string_collection import PauliStringCollection
 from paulie.common.pauli_string_factory import get_identity, get_pauli_string, get_single
+from paulie.application.get_optimal_su2_n import get_optimal_su_2_n_generators
 
 
 def _evaluate_sequence(sequence: list[PauliString]) -> PauliString | None:
@@ -33,16 +35,113 @@ def _sequence_to_paulie_orientation(sequence: list[PauliString]) -> list[PauliSt
         return []
     return list(reversed(sequence[1:])) + [sequence[0]]
 
+"""
+def left_a_minimal(k: int) -> list[PauliString]:
+    a = get_pauli_string(G_LIE["a12"], k)
+    a_ops = get_optimal_su_2_n_generators(a)
+    return a_ops
+"""
 
 def left_a_minimal(k: int) -> list[PauliString]:
-    r"""Return the minimal left universal set ``{X_i, Z_i}_i \cup {Z^{\otimes k}}``."""
-    a_ops: list[PauliString] = []
-    for index in range(k):
-        a_ops.append(get_single(k, index, "X"))
-        a_ops.append(get_single(k, index, "Z"))
-    a_ops.append(get_pauli_string("Z" * k))
+    """Return the minimal left universal set ``{X_i, Z_i}_i \cup {Z^{\otimes k}}``."""
+
+    if k % 3 != 0:
+        a_ops = kn_case(k)
+    else:
+        a_ops = k3_case(k)
+
     return a_ops
 
+def kn_case(k: int) -> list[PauliString]:
+
+    if k == 1:
+        return [get_single(1, 0, "X"), get_single(1, 0, "Z")]
+
+    # su(4) seed on qubits 1, 2 (Proposition 1).
+    a_ops: list[PauliString] = [
+        get_single(k, 0, "X"),
+        get_single(k, 0, "Z"),
+        get_single(k, 1, "X"),
+        get_single(k, 1, "Z"),
+        get_pauli_string("ZZ" + "I" * (k - 2)),
+    ]
+
+    # Nearest-neighbor couplers X_i Z_{i+1}, Z_i X_{i+1} for i = 2, ..., k-1.
+    for i in range(1, k - 1):  # 0-indexed: i ↔ qubit (i+1)
+        xz = ["I"] * k
+        xz[i] = "X"
+        xz[i + 1] = "Z"
+        zx = ["I"] * k
+        zx[i] = "Z"
+        zx[i + 1] = "X"
+        a_ops.append(get_pauli_string("".join(xz)))
+        a_ops.append(get_pauli_string("".join(zx)))
+
+    return a_ops
+
+def k3_case(N) -> list[PauliString]:
+    if N % 3 != 0:
+        raise ValueError(
+            f"Example 3 requires N divisible by 3; got N={N}. "
+            "Use Example 1 or 2 for general N."
+        )
+    k = N // 3
+    M = 4 * k - 1
+
+    # Single-qubit (HS)^† · (HS) and (HS) · (HS)^† actions, unsigned.
+    HS_HEIS = {"I": "I", "X": "Z", "Y": "X", "Z": "Y"}
+    HS_SCHR = {"I": "I", "X": "Y", "Y": "Z", "Z": "X"}
+    # Unsigned Pauli multiplication.
+    PMUL = {(a, b): c for a, b, c in [
+        ("I","I","I"),("I","X","X"),("I","Y","Y"),("I","Z","Z"),
+        ("X","I","X"),("X","X","I"),("X","Y","Z"),("X","Z","Y"),
+        ("Y","I","Y"),("Y","X","Z"),("Y","Y","I"),("Y","Z","X"),
+        ("Z","I","Z"),("Z","X","Y"),("Z","Y","X"),("Z","Z","I"),
+    ]}
+
+    def cz_pair(c1: str, c2: str) -> tuple[str, str]:
+        # CZ_{i,i+1} conjugation (self-inverse, so Heisenberg = Schrödinger).
+        z1 = "Z" if c1 in ("X", "Y") else "I"
+        z2 = "Z" if c2 in ("X", "Y") else "I"
+        return PMUL[(c1, z2)], PMUL[(z1, c2)]
+
+    def step_heis(p: list[str]) -> list[str]:
+        # T_M^† P T_M = U_CZ^† U_HS^† P U_HS U_CZ
+        q = [HS_HEIS[c] for c in p]
+        for i in range(len(q) - 1):
+            q[i], q[i + 1] = cz_pair(q[i], q[i + 1])
+        return q
+
+    def step_schr(p: list[str]) -> list[str]:
+        # T_M P T_M^† = U_HS U_CZ P U_CZ^† U_HS^†
+        q = p[:]
+        for i in range(len(q) - 1):
+            q[i], q[i + 1] = cz_pair(q[i], q[i + 1])
+        return [HS_SCHR[c] for c in q]
+
+    # Index set I_M from Eq. (J4), in paper order.
+    I_M: list[int] = [-1]
+    for j in range(k):
+        I_M.extend([4*j, 4*j + 1, 4*j + 2, -4*j - 2, -4*j - 3, -4*j - 4])
+    assert len(I_M) == 2 * N + 1
+
+    # Build the orbit O_M(ell) for the needed range of ell.
+    orbit: dict[int, list[str]] = {0: ["Z"] + ["I"] * (M - 1)}
+    p = orbit[0][:]
+    for ell in range(1, max(I_M) + 1):
+        p = step_heis(p)
+        orbit[ell] = p[:]
+    p = orbit[0][:]
+    for ell in range(-1, min(I_M) - 1, -1):
+        p = step_schr(p)
+        orbit[ell] = p[:]
+
+    # tilde: drop every 4th qubit. 1-indexed positions 4, 8, …, 4(k-1).
+    drop = {4 * j - 1 for j in range(1, k)}  # 0-indexed
+    def tilde(s: list[str]) -> str:
+        return "".join(c for i, c in enumerate(s) if i not in drop)
+
+    return [get_pauli_string(tilde(orbit[ell])) for ell in I_M]
 
 def choose_u_for_b(k: int) -> PauliString:
     """Choose the fixed left tag used when coupling to right-side generators."""
@@ -313,9 +412,6 @@ class PauliCompilerConfig:
 
     k_left: int
     n_total: int
-    fallback_depth: int = 8
-    fallback_nodes: int = 200000
-
 
 class OptimalPauliCompiler:
     """Compiler implementing the construction from arXiv:2408.03294.
@@ -336,8 +432,6 @@ class OptimalPauliCompiler:
         self.n_right = self.n_total - self.k
         self.a_left = left_a_minimal(self.k)
         self.sub = SubsystemCompiler(SubsystemCompilerConfig(k_left=self.k, n_total=self.n_total))
-        self.fallback_depth = cfg.fallback_depth
-        self.fallback_nodes = cfg.fallback_nodes
 
     def extend_left(self, a_left: PauliString) -> PauliString:
         """Extend a left Pauli string to the full system."""
@@ -466,11 +560,58 @@ class OptimalPauliCompiler:
         Returns:
             sequence (list[PauliString]): List of permuted Pauli string that adj map is non-zero.
         """
+        L = len(g)
+        if L <= 1:
+            return [0] if L == 1 else None
 
-        for perm in itertools.permutations(g):
+        # Running F_2 sum = product (up to phase) of all not-yet-picked Paulis.
+        total = g[0]
+        for p in g[1:]:
+            total = total.multiply(p)
 
-            if _evaluate_sequence(perm) is not None:
-                return perm
+        def solve(remaining: list[int], S: PauliString) -> list[int] | None:
+            if len(remaining) == 1:
+                return list(remaining)
+            if S.is_identity():  # nothing anticommutes with I
+                return None
+            for i in remaining:
+                if not g[i].commutes_with(S):
+                    # Drop g[i] from the running product: multiply by it again.
+                    new_S = S.multiply(g[i])
+                    # Cheap prune: if the residue is I with >1 element left, dead end.
+                    if new_S.is_identity() and len(remaining) > 2:
+                        continue
+                    sub = solve([j for j in remaining if j != i], new_S)
+                    if sub is not None:
+                        return [i] + sub
+            return None
+
+        return solve(list(range(L)), total)
+
+    def nested_eval(seq: list[PauliString]) -> PauliString | None:
+        """ad_{seq[0]} … ad_{seq[-2]}(seq[-1]), or None if any step gives 0."""
+        result = seq[-1]
+        for P in reversed(seq[:-1]):
+            result = P.adjoint_map(result)
+            if result is None:
+                return None
+        return result
+
+    def reorder_to_nested(self, L_seq: list[PauliString],
+                          R_seq: list[PauliString]) -> list[PauliString]:
+        """Given two sequences L, R interpreted as nested commutators, return a
+        permutation S of L+R such that nested_eval(S) ∝ [nested_eval(L), nested_eval(R)].
+        Applies Lemma G.2 of arXiv:2408.03294 iteratively."""
+        if len(R_seq) == 1:
+            return [R_seq[0]] + L_seq
+        if len(L_seq) == 1:
+            return L_seq + R_seq
+        R_0 = R_seq[0]
+        Left = self.nested_eval(L_seq)
+        if Left.commutes_with(R_0):
+            return [R_0] + self.reorder_to_nested(L_seq, R_seq[1:])
+        else:
+            return self.reorder_to_nested([R_0] + L_seq, R_seq[1:])
 
     def _case3_best_reordering(
         self,
@@ -560,41 +701,6 @@ class OptimalPauliCompiler:
                                 return sequence
         return None
 
-    def _bfs_case3(
-        self, w_right: PauliString, depth_cap: int, node_cap: int
-    ) -> list[PauliString] | None:
-        """Fallback bounded BFS for the case ``V = I`` and ``W != I``."""
-        universal_set = construct_universal_set(self.n_total, self.k)
-        target_left = get_identity(self.k)
-        nodes = 0
-        frontier: list[tuple[PauliString | None, list[int]]] = [(None, [])]
-        visited: set[tuple[int, PauliString]] = set()
-
-        for depth in range(1, depth_cap + 1):
-            new_frontier: list[tuple[PauliString | None, list[int]]] = []
-            for result, seq_idx in frontier:
-                for op_index, operator in enumerate(universal_set):
-                    nodes += 1
-                    if nodes > node_cap:
-                        return None
-                    new_result = operator if result is None else (operator ^ result)
-                    if new_result is None:
-                        continue
-                    state_key = (depth, new_result)
-                    if state_key in visited:
-                        continue
-                    visited.add(state_key)
-                    new_sequence = seq_idx + [op_index]
-                    if depth >= 2:
-                        if (
-                            new_result.get_substring(0, self.k) == target_left
-                            and new_result.get_substring(self.k, self.n_right) == w_right
-                        ):
-                            return [universal_set[idx] for idx in new_sequence]
-                    new_frontier.append((new_result, new_sequence))
-            frontier = new_frontier
-        return None
-
     def compile(self, v_left: PauliString, w_right: PauliString) -> list[PauliString]:
         """Compile a target specified by its left and right factors.
 
@@ -647,30 +753,11 @@ class OptimalPauliCompiler:
                 ext_a = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 10: Extend to full system [A1 ⊗ I,...,As ⊗ I]
                 #g = [*g1, *g2, *ext_a]  #Algorithm 2, line 10: Concatenation of sequence
                 #sequence = self._permutation_adj(g) #Algorithm 2, line 11: Choose permutation of g s.t. sequence != 0
-                sequence = self._case3_best_reordering(g1, g2, ext_a, w_right)
+                sequence = self.reorder_to_nested(g1, [*g2, *ext_a])
+                #sequence = self._case3_best_reordering(g1, g2, ext_a, w_right)
                 if sequence is not None:
                     return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
 
-            ############# Require to check code in this block #############
-            seq_fb = self._bfs_case3(w_right, self.fallback_depth, self.fallback_nodes)
-            if seq_fb is not None:
-                return _sequence_to_paulie_orientation(seq_fb)
-
-            w_str = str(w_right)
-            site = next(index for index, label in enumerate(w_str) if label != "I")
-            label = "X" if w_str[site] == "Z" else ("Z" if w_str[site] == "X" else "X")
-            w1 = get_single(self.n_right, site, label)
-            w2 = w1 @ w_right
-            g1 = self.sub.subsystem_compiler(w1)
-            g2 = self.sub.subsystem_compiler(w2)
-            v1_prime = self._left_factor_from_sequence(g1)
-            v2_prime = self._left_factor_from_sequence(g2)
-            seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left)
-            ext_a = [self.extend_left(a) for a in seq_a]
-            return _sequence_to_paulie_orientation(
-                list(reversed(g1)) + ext_a + list(reversed(g2))
-            )
-            ################################################################
         else:
             g_right = self.sub.subsystem_compiler(w_right) #Algorithm 2, line 14.1
             v_prime = self._left_factor_from_sequence(g_right) #Algorithm 2, line 14.2
