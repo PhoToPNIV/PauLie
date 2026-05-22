@@ -439,7 +439,7 @@ class OptimalPauliCompiler:
 
     def _left_factor_from_sequence(self, ops: list[PauliString]) -> PauliString:
         """Extract the left factor of a compiled right-subsystem sequence."""
-        result = _evaluate_sequence(ops)
+        result = _evaluate_paulie_orientation(ops)
         return result.get_substring(0, self.k)
 
     def _candidate_decompositions(
@@ -549,45 +549,7 @@ class OptimalPauliCompiler:
 
         return rec(0, 0, 0, 0, [])
 
-    def _permutation_adj(
-        self,
-        g: list[PauliString]
-    ) -> list[PauliString] | None:
-        """
-        Search for permutation of g that adj map is non-zero.
-        Args:
-            g (list[PauliString]): List of Pauli string before permutation.
-        Returns:
-            sequence (list[PauliString]): List of permuted Pauli string that adj map is non-zero.
-        """
-        L = len(g)
-        if L <= 1:
-            return [0] if L == 1 else None
-
-        # Running F_2 sum = product (up to phase) of all not-yet-picked Paulis.
-        total = g[0]
-        for p in g[1:]:
-            total = total.multiply(p)
-
-        def solve(remaining: list[int], S: PauliString) -> list[int] | None:
-            if len(remaining) == 1:
-                return list(remaining)
-            if S.is_identity():  # nothing anticommutes with I
-                return None
-            for i in remaining:
-                if not g[i].commutes_with(S):
-                    # Drop g[i] from the running product: multiply by it again.
-                    new_S = S.multiply(g[i])
-                    # Cheap prune: if the residue is I with >1 element left, dead end.
-                    if new_S.is_identity() and len(remaining) > 2:
-                        continue
-                    sub = solve([j for j in remaining if j != i], new_S)
-                    if sub is not None:
-                        return [i] + sub
-            return None
-
-        return solve(list(range(L)), total)
-
+    @staticmethod
     def nested_eval(seq: list[PauliString]) -> PauliString | None:
         """ad_{seq[0]} … ad_{seq[-2]}(seq[-1]), or None if any step gives 0."""
         result = seq[-1]
@@ -612,94 +574,6 @@ class OptimalPauliCompiler:
             return [R_0] + self.reorder_to_nested(L_seq, R_seq[1:])
         else:
             return self.reorder_to_nested([R_0] + L_seq, R_seq[1:])
-
-    def _case3_best_reordering(
-        self,
-        g1: list[PauliString],
-        g2: list[PauliString],
-        a_ext: list[PauliString],
-        w_right: PauliString,
-    ) -> list[PauliString] | None:
-        """Search for a valid reordering in the ``V = I`` and ``W != I`` case."""
-        g1_rev, g2_rev = list(reversed(g1)), list(reversed(g2))
-        candidates = [
-            list(g1) + list(a_ext) + list(g2_rev) + list(a_ext),
-            list(g1_rev) + list(a_ext) + list(g2) + list(a_ext),
-            list(a_ext) + list(g1) + list(a_ext) + list(g2_rev),
-            list(a_ext) + list(g1_rev) + list(a_ext) + list(g2),
-            list(g2) + list(a_ext) + list(g1_rev) + list(a_ext),
-            list(g2_rev) + list(a_ext) + list(g1) + list(a_ext),
-        ]
-        target_left = get_identity(self.k)
-        for sequence in candidates:
-            result = _evaluate_sequence(sequence)
-            if (
-                result is not None
-                and result.get_substring(0, self.k) == target_left
-                and result.get_substring(self.k, self.n_right) == w_right
-            ):
-                return sequence
-
-        blocks = [g1, g2, a_ext]
-        for perm in permutations(range(3)):
-            b0, b1, b2 = [blocks[i] for i in perm]
-            for r0 in (False, True):
-                for r1 in (False, True):
-                    for r2 in (False, True):
-                        sequence = (
-                            (list(reversed(b0)) if r0 else list(b0))
-                            + (list(reversed(b1)) if r1 else list(b1))
-                            + (list(reversed(b2)) if r2 else list(b2))
-                        )
-                        result = _evaluate_sequence(sequence)
-                        if (
-                            result is not None
-                            and result.get_substring(0, self.k) == target_left
-                            and result.get_substring(self.k, self.n_right) == w_right
-                        ):
-                            return sequence
-
-        for g1_block in (g1, list(reversed(g1))):
-            for g2_block in (g2, list(reversed(g2))):
-                for a_block in (a_ext, list(reversed(a_ext))):
-                    for sequence in self._all_interleavings_preserving(g1_block, g2_block, a_block):
-                        result = _evaluate_sequence(sequence)
-                        if (
-                            result is not None
-                            and result.get_substring(0, self.k) == target_left
-                            and result.get_substring(self.k, self.n_right) == w_right
-                        ):
-                            return sequence
-
-        a_options = (a_ext, list(reversed(a_ext)))
-        for g1_block in (g1, g1_rev):
-            for g2_block in (g2, g2_rev):
-                for a1 in a_options:
-                    for a2 in a_options:
-                        for sequence in (
-                            list(g1_block) + list(a1) + list(g2_block) + list(a2),
-                            list(g2_block) + list(a1) + list(g1_block) + list(a2),
-                            list(a1) + list(g1_block) + list(a2) + list(g2_block),
-                            list(a1) + list(g2_block) + list(a2) + list(g1_block),
-                        ):
-                            result = _evaluate_sequence(sequence)
-                            if (
-                                result is not None
-                                and result.get_substring(0, self.k) == target_left
-                                and result.get_substring(self.k, self.n_right) == w_right
-                            ):
-                                return sequence
-                        for sequence in self._all_interleavings_preserving4(
-                                g1_block, g2_block, a1, a2
-                        ):
-                            result = _evaluate_sequence(sequence)
-                            if (
-                                result is not None
-                                and result.get_substring(0, self.k) == target_left
-                                and result.get_substring(self.k, self.n_right) == w_right
-                            ):
-                                return sequence
-        return None
 
     def compile(self, v_left: PauliString, w_right: PauliString) -> list[PauliString]:
         """Compile a target specified by its left and right factors.
@@ -751,10 +625,7 @@ class OptimalPauliCompiler:
                 v2_prime = self._left_factor_from_sequence(g2) #Algorithm 2, line 8.2
                 seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left) #Algorithm 2, line 9: Choose [A1,...,As]
                 ext_a = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 10: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-                #g = [*g1, *g2, *ext_a]  #Algorithm 2, line 10: Concatenation of sequence
-                #sequence = self._permutation_adj(g) #Algorithm 2, line 11: Choose permutation of g s.t. sequence != 0
-                sequence = self.reorder_to_nested(g1, [*g2, *ext_a])
-                #sequence = self._case3_best_reordering(g1, g2, ext_a, w_right)
+                sequence = self.reorder_to_nested(g1, [*ext_a, *g2])
                 if sequence is not None:
                     return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
 
