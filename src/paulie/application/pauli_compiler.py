@@ -528,14 +528,14 @@ class OptimalPauliCompiler:
     @staticmethod
     def nested_eval(seq: list[PauliString]) -> PauliString | None:
         """ad_{seq[0]} … ad_{seq[-2]}(seq[-1]), or None if any step gives 0."""
-        result = seq[-1]
+
+        result: PauliString | None = seq[-1]
+
         for P in reversed(seq[:-1]):
-            result = P.adjoint_map(result)
             if result is None:
                 return None
 
-        if result is None:
-            return None
+            result = P.adjoint_map(result)
 
         return result
 
