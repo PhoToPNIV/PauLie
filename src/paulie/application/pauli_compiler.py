@@ -28,13 +28,6 @@ def _sequence_to_paulie_orientation(sequence: list[PauliString]) -> list[PauliSt
         return []
     return list(reversed(sequence[1:])) + [sequence[0]]
 
-"""
-def left_a_minimal(k: int) -> list[PauliString]:
-    a = get_pauli_string(G_LIE["a12"], k)
-    a_ops = get_optimal_su_2_n_generators(a)
-    return a_ops
-"""
-
 def left_a_minimal(k: int) -> list[PauliString]:
     """Return the minimal left universal set ``{X_i, Z_i}_i \cup {Z^{\otimes k}}``."""
 
@@ -46,11 +39,11 @@ def left_a_minimal(k: int) -> list[PauliString]:
     return a_ops
 
 def kn_case(k: int) -> list[PauliString]:
+    """Return the minimal left universal set for k equal 3."""
 
     if k == 1:
         return [get_single(1, 0, "X"), get_single(1, 0, "Z")]
 
-    # su(4) seed on qubits 1, 2 (Proposition 1).
     a_ops: list[PauliString] = [
         get_single(k, 0, "X"),
         get_single(k, 0, "Z"),
@@ -59,8 +52,7 @@ def kn_case(k: int) -> list[PauliString]:
         get_pauli_string("ZZ" + "I" * (k - 2)),
     ]
 
-    # Nearest-neighbor couplers X_i Z_{i+1}, Z_i X_{i+1} for i = 2, ..., k-1.
-    for i in range(1, k - 1):  # 0-indexed: i ↔ qubit (i+1)
+    for i in range(1, k - 1):
         xz = ["I"] * k
         xz[i] = "X"
         xz[i + 1] = "Z"
@@ -73,6 +65,8 @@ def kn_case(k: int) -> list[PauliString]:
     return a_ops
 
 def k3_case(N) -> list[PauliString]:
+    """Return the minimal left universal set for k not equal 3."""
+
     if N % 3 != 0:
         raise ValueError(
             f"Example 3 requires N divisible by 3; got N={N}. "
@@ -81,10 +75,9 @@ def k3_case(N) -> list[PauliString]:
     k = N // 3
     M = 4 * k - 1
 
-    # Single-qubit (HS)^† · (HS) and (HS) · (HS)^† actions, unsigned.
     HS_HEIS = {"I": "I", "X": "Z", "Y": "X", "Z": "Y"}
     HS_SCHR = {"I": "I", "X": "Y", "Y": "Z", "Z": "X"}
-    # Unsigned Pauli multiplication.
+
     PMUL = {(a, b): c for a, b, c in [
         ("I","I","I"),("I","X","X"),("I","Y","Y"),("I","Z","Z"),
         ("X","I","X"),("X","X","I"),("X","Y","Z"),("X","Z","Y"),
@@ -93,32 +86,27 @@ def k3_case(N) -> list[PauliString]:
     ]}
 
     def cz_pair(c1: str, c2: str) -> tuple[str, str]:
-        # CZ_{i,i+1} conjugation (self-inverse, so Heisenberg = Schrödinger).
         z1 = "Z" if c1 in ("X", "Y") else "I"
         z2 = "Z" if c2 in ("X", "Y") else "I"
         return PMUL[(c1, z2)], PMUL[(z1, c2)]
 
     def step_heis(p: list[str]) -> list[str]:
-        # T_M^† P T_M = U_CZ^† U_HS^† P U_HS U_CZ
         q = [HS_HEIS[c] for c in p]
         for i in range(len(q) - 1):
             q[i], q[i + 1] = cz_pair(q[i], q[i + 1])
         return q
 
     def step_schr(p: list[str]) -> list[str]:
-        # T_M P T_M^† = U_HS U_CZ P U_CZ^† U_HS^†
         q = p[:]
         for i in range(len(q) - 1):
             q[i], q[i + 1] = cz_pair(q[i], q[i + 1])
         return [HS_SCHR[c] for c in q]
 
-    # Index set I_M from Eq. (J4), in paper order.
     I_M: list[int] = [-1]
     for j in range(k):
         I_M.extend([4*j, 4*j + 1, 4*j + 2, -4*j - 2, -4*j - 3, -4*j - 4])
     assert len(I_M) == 2 * N + 1
 
-    # Build the orbit O_M(ell) for the needed range of ell.
     orbit: dict[int, list[str]] = {0: ["Z"] + ["I"] * (M - 1)}
     p = orbit[0][:]
     for ell in range(1, max(I_M) + 1):
@@ -129,8 +117,7 @@ def k3_case(N) -> list[PauliString]:
         p = step_schr(p)
         orbit[ell] = p[:]
 
-    # tilde: drop every 4th qubit. 1-indexed positions 4, 8, …, 4(k-1).
-    drop = {4 * j - 1 for j in range(1, k)}  # 0-indexed
+    drop = {4 * j - 1 for j in range(1, k)}
     def tilde(s: list[str]) -> str:
         return "".join(c for i, c in enumerate(s) if i not in drop)
 
@@ -212,19 +199,19 @@ class SubsystemCompiler:
 
     def _choose_a1_a2(self, u_i: PauliString) -> tuple[PauliString, PauliString]:
         """Choose helpers ``A_1, A_2`` with the required commutation pattern."""
-        anti_with_u = u_i.get_anti_commutants(self.left_pool) #Universal set of A that anti-commute with Ui
-        for a1 in anti_with_u: #Algorithm 3, line 7.1
-            for a2 in anti_with_u: #Algorithm 3, line 7.2
-                if a2 != a1: #Algorithm 3, line 7.1
-                    if a1 | a2: #Algorithm 3, line 7.3
+        anti_with_u = u_i.get_anti_commutants(self.left_pool)
+        for a1 in anti_with_u:
+            for a2 in anti_with_u:
+                if a2 != a1:
+                    if a1 | a2:
                         return a1, a2
         raise RuntimeError("Failed to find A1,A2 in iP_k^*.")
 
     def _choose_aprime(self, u_i: PauliString, prod_uj_a: PauliString, prod_uj_gt_a: PauliString) -> PauliString:
         """Choose a helper ``A'`` that anticommutes with ``u_i`` and commutes with ``prod_uj_gt_a``."""
-        for aprime in u_i.get_anti_commutants(self.left_pool): #Algorithm 3, line 11.2: Universal set of A' that anti-commute with Ui
-            if not aprime | prod_uj_gt_a: #Algorithm 3, line 11.1
-                if aprime != prod_uj_a: #Algorithm 3, line 11.3
+        for aprime in u_i.get_anti_commutants(self.left_pool):
+            if not aprime | prod_uj_gt_a:
+                if aprime != prod_uj_a:
                     return aprime
         raise RuntimeError("Failed to find A' in iP_k^*.")
 
@@ -236,14 +223,14 @@ class SubsystemCompiler:
     ) -> tuple[PauliString, PauliString]:
         """Return the accumulated left and right factors after ``index``."""
         p_left = get_identity(self.k)
-        for j in range(index + 1, len(ui_bi)): #Product in Algorithm 3, line 6
-            p_left = p_left @ ui_bi[j][0] #Product of ui for index j>i
+        for j in range(index + 1, len(ui_bi)):
+            p_left = p_left @ ui_bi[j][0]
         for helper in helpers:
-            p_left = p_left @ helper #Product of a in h
+            p_left = p_left @ helper
 
         p_right = get_identity(self.n_right)
         for j in range(index + 1, len(ui_bi)):
-            p_right = p_right @ ui_bi[j][1] #Product of bi for index j>i
+            p_right = p_right @ ui_bi[j][1]
         return p_left, p_right
 
     def _product_uj_a(
@@ -262,14 +249,14 @@ class SubsystemCompiler:
             prod_uj_a (PauliString): Product of Uj right multiply with product of A
         """
         prod_uj = get_identity(self.k)
-        for j in range(index, len(ui_bi)): #Product in Algorithm 3, line 6
-            prod_uj = prod_uj @ ui_bi[j][0] #Product of Uj
+        for j in range(index, len(ui_bi)):
+            prod_uj = prod_uj @ ui_bi[j][0]
 
         prod_a = get_identity(self.k)
         for a in helpers:
-            prod_a = prod_a @ a #Product of A
+            prod_a = prod_a @ a
 
-        prod_uj_a = prod_uj @ prod_a #(Product of Uj)(Product of A)
+        prod_uj_a = prod_uj @ prod_a
 
         return prod_uj_a
 
@@ -287,9 +274,9 @@ class SubsystemCompiler:
             prod_uj_bj (PauliString): Product of Uj ⊗ Bj
         """
         prod_uj_bj = get_identity(self.n_total)
-        for j in range(index, len(ui_bi)): #Product in Algorithm 3, line 6
+        for j in range(index, len(ui_bi)):
             u_j, b_j = ui_bi[j]
-            prod_uj_bj = prod_uj_bj @ self.extend_pair(u_j, b_j) #Product of uj ⊗ bj
+            prod_uj_bj = prod_uj_bj @ self.extend_pair(u_j, b_j)
 
         return prod_uj_bj
 
@@ -306,7 +293,7 @@ class SubsystemCompiler:
         """
         prod_a_i = get_identity(self.n_total)
         for a in helpers:
-            prod_a_i = prod_a_i @ self.extend_left(a) #Product of A
+            prod_a_i = prod_a_i @ self.extend_left(a)
 
         return prod_a_i
 
@@ -314,40 +301,40 @@ class SubsystemCompiler:
         """Compile a target supported only on the right subsystem."""
         assert len(w_right) == self.n_right
 
-        for ui_bi in self.factor_w_orders(w_right): #Algorithm 3, line 1: Choose [u1 ⊗ b1,...,ur ⊗ br] s.t. b1⋅⋅⋅br=w_right
+        for ui_bi in self.factor_w_orders(w_right):
             if not ui_bi:
                 return []
 
-            index = len(ui_bi) - 2 #Algorithm 3, line 2
-            sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])] #Algorithm 3, line 3: Last pair ur ⊗ br
-            helpers: list[PauliString] = [] #Algorithm 3, line 4
+            index = len(ui_bi) - 2
+            sequence: list[PauliString] = [self.extend_pair(ui_bi[-1][0], ui_bi[-1][1])]
+            helpers: list[PauliString] = []
 
-            while index >= 0: #Algorithm 3, line 5: Loop from index r-1 to 1
+            while index >= 0:
                 u_i, b_i = ui_bi[index]
-                ub_i = self.extend_pair(u_i, b_i)  # Ui ⊗ Bi
-                prod_uj_a = self._product_uj_a(index, ui_bi, helpers) #(Product Uj)(Product A)
-                prod_uj_gt_a = self._product_uj_a(index + 1, ui_bi, helpers)  # (Product Uj>i)(Product A)
-                prod_ub_j_gt = self._product_uj_bj(index + 1, ui_bi) #Product Uj>i ⊗ Bj>i
-                prod_a_iden = self._product_a_iden(helpers) #Product A ⊗ I
-                prod_ub_j_gt_prod_a_iden = prod_ub_j_gt @ prod_a_iden #(Product Uj>i ⊗ Bj>i)(Product A ⊗ I)
+                ub_i = self.extend_pair(u_i, b_i)
+                prod_uj_a = self._product_uj_a(index, ui_bi, helpers)
+                prod_uj_gt_a = self._product_uj_a(index + 1, ui_bi, helpers)
+                prod_ub_j_gt = self._product_uj_bj(index + 1, ui_bi)
+                prod_a_iden = self._product_a_iden(helpers)
+                prod_ub_j_gt_prod_a_iden = prod_ub_j_gt @ prod_a_iden
 
-                if prod_uj_a.is_identity(): #Algorithm 3, line 6
-                    a1, a2 = self._choose_a1_a2(u_i) #Algorithm 3, line 7
-                    helpers.append(a1) #Algorithm 3, line 8
-                    helpers.append(a2) #Algorithm 3, line 8
-                    sequence.append(self.extend_left(a1)) #Algorithm 3, line 9
-                    sequence.append(self.extend_left(a2)) #Algorithm 3, line 9
+                if prod_uj_a.is_identity():
+                    a1, a2 = self._choose_a1_a2(u_i)
+                    helpers.append(a1)
+                    helpers.append(a2)
+                    sequence.append(self.extend_left(a1))
+                    sequence.append(self.extend_left(a2))
                     continue
 
-                elif ub_i | prod_ub_j_gt_prod_a_iden: #Algorithm 3, line 10
-                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a) #Algorithm 3, line 11
-                    helpers.append(a_prime) #Algorithm 3, line 12
-                    sequence.append(self.extend_left(a_prime)) #Algorithm 3, line 13
+                elif ub_i | prod_ub_j_gt_prod_a_iden:
+                    a_prime = self._choose_aprime(u_i, prod_uj_a, prod_uj_gt_a)
+                    helpers.append(a_prime)
+                    sequence.append(self.extend_left(a_prime))
                     continue
 
                 else:
-                    sequence.append(ub_i) #Algorithm 3, line 15
-                    index -= 1 #Algorithm 3, line 16
+                    sequence.append(ub_i)
+                    index -= 1
 
             return sequence[::-1]
 
@@ -586,35 +573,35 @@ class OptimalPauliCompiler:
                 f"got {len(v_left)} and {len(w_right)}."
             )
 
-        if w_right.is_identity(): #Algorithm 2, line 2
-            for a_s in self.a_left: #Algorithm 2, line 3: loop through As in default universal set TODO: change to user define universal set
-                try: #Algorithm 2, line 3: Choose [A1,...,As]
-                    seq_a = left_map_over_a(a_s, v_left, self.a_left) #Find [A1,...,As-1]
+        if w_right.is_identity():
+            for a_s in self.a_left:
+                try:
+                    seq_a = left_map_over_a(a_s, v_left, self.a_left)
                     seq_a.append(a_s)
                 except RuntimeError:
                     continue
-                sequence: list[PauliString] | None = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 4: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-                return sequence #Return the first found map
+                sequence: list[PauliString] | None = [self.extend_left(a) for a in seq_a]
+                return sequence
             raise RuntimeError("Left-only mapping failed.")
 
-        elif v_left.is_identity(): #Algorithm 2, line 5
-            for w1, w2 in self._candidate_decompositions(w_right): #Algorithm 2, line 6: Choose w1,w2 s.t. iw_right=[w1,w2]
-                g1 = self.sub.subsystem_compiler(w1) #Algorithm 2, line 7.1
-                v1_prime = self._left_factor_from_sequence(g1) #Algorithm 2, line 7.2
-                g2 = self.sub.subsystem_compiler(w2) #Algorithm 2, line 8.1
-                v2_prime = self._left_factor_from_sequence(g2) #Algorithm 2, line 8.2
-                seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left) #Algorithm 2, line 9: Choose [A1,...,As]
-                ext_a = [self.extend_left(a) for a in seq_a] #Algorithm 2, line 10: Extend to full system [A1 ⊗ I,...,As ⊗ I]
+        elif v_left.is_identity():
+            for w1, w2 in self._candidate_decompositions(w_right):
+                g1 = self.sub.subsystem_compiler(w1)
+                v1_prime = self._left_factor_from_sequence(g1)
+                g2 = self.sub.subsystem_compiler(w2)
+                v2_prime = self._left_factor_from_sequence(g2)
+                seq_a = left_map_over_a(v2_prime, v1_prime, self.a_left)
+                ext_a = [self.extend_left(a) for a in seq_a]
                 sequence = self.reorder_to_nested(g1, [*ext_a, *g2])
                 if sequence is not None:
-                    return sequence #Algorithm 2, line 12: Return permuted sequence that has non-zero adj map
+                    return sequence
 
         else:
-            g_right = self.sub.subsystem_compiler(w_right) #Algorithm 2, line 14.1
-            v_prime = self._left_factor_from_sequence(g_right) #Algorithm 2, line 14.2
-            seq_a = left_map_over_a(v_prime, v_left, self.a_left) #Algorithm 2, line 15: Choose [A1,...,As]
-            ext_a = [self.extend_left(a) for a in seq_a]  # Algorithm 2, line 16: Extend to full system [A1 ⊗ I,...,As ⊗ I]
-            sequence = [*ext_a,*g_right]  # Algorithm 2, line 16: Concatenation of sequence
+            g_right = self.sub.subsystem_compiler(w_right)
+            v_prime = self._left_factor_from_sequence(g_right)
+            seq_a = left_map_over_a(v_prime, v_left, self.a_left)
+            ext_a = [self.extend_left(a) for a in seq_a]
+            sequence = [*ext_a,*g_right]
 
             return sequence
 
