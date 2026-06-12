@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Optimal universal generator sets &#8212; PauLie</title>
+    <title>Algorithm &#8212; PauLie</title>
   
   
   
@@ -43,11 +43,11 @@
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'user/optimal_universal_generators';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user/pauli_compiler';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Algorithm" href="pauli_compiler.html" />
-    <link rel="prev" title="Commutator graph" href="commutator_graph.html" />
+    <link rel="next" title="API Reference" href="../api/index.html" />
+    <link rel="prev" title="Optimal universal generator sets" href="optimal_universal_generators.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -335,8 +335,8 @@
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="classification.html">Classification of Pauli DLAs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="commutator_graph.html">Commutator graph</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Optimal universal generator sets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pauli_compiler.html">Algorithm</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimal_universal_generators.html">Optimal universal generator sets</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Algorithm</a></li>
 
 </ul>
 </div>
@@ -381,7 +381,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">User Guide</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Optimal universal generator sets</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Algorithm</span></li>
   </ul>
 </nav>
 </div>
@@ -398,22 +398,57 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="optimal-universal-generator-sets">
-<h1>Optimal universal generator sets<a class="headerlink" href="#optimal-universal-generator-sets" title="Link to this heading">#</a></h1>
-<p>Here we demonstrate the feature <code class="code docutils literal notranslate"><span class="pre">get_optimal_su_2_n_generators</span></code> with which we obtain generating
-sets of <span class="math notranslate nohighlight">\(\mathfrak{su}(2^n)\)</span> that have optimal generation rate.
-To this end, we start with some universal generator set and find the graph with an anticommutation
-fraction nearest to <span class="math notranslate nohighlight">\(0.706\)</span>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">paulie</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_optimal_su_2_n_generators</span><span class="p">,</span> <span class="n">G_LIE</span><span class="p">,</span> <span class="n">get_pauli_string</span> <span class="k">as</span> <span class="n">p</span>
+  <p>In quantum computing, a target gate <span class="math notranslate nohighlight">\(P\)</span> is considered reachable if it can be generated from the
+available system operators <span class="math notranslate nohighlight">\(A_m\)</span>. The Pauli compiler searches for a sequence
+<span class="math notranslate nohighlight">\((A_{i_1}, A_{i_2}, \dots, A_{i_k})\)</span> such that <span class="math notranslate nohighlight">\(P\)</span> can be expressed
+(up to proportionality) as a nested commutator,</p>
+<div class="math notranslate nohighlight">
+\[[A_{i_1}, [A_{i_2}, [\dots, [A_{i_{k-1}}, A_{i_k}] \dots ]]] \propto P\]</div>
+<p>This identifies a sequence of generators whose nested commutator reproduces the target,
+which can then be translated into a quantum circuit.</p>
+<section id="algorithm">
+<h1>Algorithm<a class="headerlink" href="#algorithm" title="Link to this heading">#</a></h1>
+<p>To compile a target Pauli string <span class="math notranslate nohighlight">\(P\)</span>, the string is partitioned into left and right subsystem components.
+Depending on this structure, the compiler applies one of three cases:</p>
+<ol class="arabic simple">
+<li><p><strong>Left-only</strong> (<span class="math notranslate nohighlight">\(V \neq I, W = I\)</span>): The target has support only on the left subsystem.
+A BFS over adjoint maps finds a path from a seed generator to the target.</p></li>
+<li><p><strong>Both sides</strong> (<span class="math notranslate nohighlight">\(V \neq I, W \neq I\)</span>): When the target has support on both subsystems,
+the right subsystem component is first compiled using a subsystem compiler, yielding undesired
+operator <span class="math notranslate nohighlight">\(V'\)</span> on the left subsystem. This operator
+is then corrected via BFS over adjoint mapping.</p></li>
+<li><p><strong>Right-only</strong> (<span class="math notranslate nohighlight">\(V = I, W \neq I\)</span>): The target acts only on the right subsystem and
+is decomposed as <span class="math notranslate nohighlight">\(W \propto [W_1, W_2]\)</span>. Each <span class="math notranslate nohighlight">\(W_1\)</span> and <span class="math notranslate nohighlight">\(W_2\)</span> is compiled
+separately using a subsystem compiler, yielding operators <span class="math notranslate nohighlight">\(V_1' \otimes W_1\)</span> and
+<span class="math notranslate nohighlight">\(V_2' \otimes W_2\)</span>. A sequence mapping <span class="math notranslate nohighlight">\(V_1'\)</span> and <span class="math notranslate nohighlight">\(V_2'\)</span> via adjoint maps is
+then found via BFS. Finally, a permutation <span class="math notranslate nohighlight">\(\sigma\)</span> of this generator sequence that
+yields a nonzero adjoint chain is selected, giving the desired compilation.</p></li>
+</ol>
+<p>In all cases, the resulting sequence has <span class="math notranslate nohighlight">\(\mathcal{O}(N)\)</span> length.</p>
+</section>
+<section id="quick-start">
+<h1>Quick start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h1>
+<p>For 4-qubits system, if the target Pauli string is IZXI, the simplest way to use the compiler is through the
+<a class="reference internal" href="../api/generated/paulie.application.pauli_compiler.compile_target.html#paulie.application.pauli_compiler.compile_target" title="paulie.application.pauli_compiler.compile_target"><code class="xref py py-func docutils literal notranslate"><span class="pre">compile_target()</span></code></a> function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">paulie</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_target</span><span class="p">,</span> <span class="n">get_pauli_string</span> <span class="k">as</span> <span class="n">p</span>
 
-<span class="n">n</span> <span class="o">=</span> <span class="mi">4</span>  <span class="c1"># dimension of the system</span>
-<span class="n">initial_generators</span> <span class="o">=</span> <span class="n">p</span><span class="p">(</span><span class="n">G_LIE</span><span class="p">[</span><span class="s2">&quot;a12&quot;</span><span class="p">],</span> <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
-<span class="n">optimal_generators</span> <span class="o">=</span> <span class="n">get_optimal_su_2_n_generators</span><span class="p">(</span><span class="n">initial_generators</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="n">optimal_generators</span><span class="si">}</span><span class="s2"> fraction=</span><span class="si">{</span><span class="n">optimal_generators</span><span class="o">.</span><span class="n">get_anticommutation_fraction</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">p</span><span class="p">(</span><span class="s2">&quot;IZXI&quot;</span><span class="p">)</span>
+<span class="n">sequence</span> <span class="o">=</span> <span class="n">compile_target</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">k_left</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Sequence length: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>which outputs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>XZYX,ZZXZ,IYYY,XZYY,IXZX,YYXY,YYYY,ZZIX,XXZY<span class="w"> </span><span class="nv">fraction</span><span class="o">=</span><span class="m">0</span>.6944444444444444
+<p>In the example, the target Pauli string is split into a left partition on <code class="docutils literal notranslate"><span class="pre">k_left</span></code> qubits
+and a right part on the remaining qubits.
+The algorithm requires that the number of qubits in the left partition be greater than or equal to 2.
+The <a class="reference internal" href="../api/generated/paulie.application.pauli_compiler.compile_target.html#paulie.application.pauli_compiler.compile_target" title="paulie.application.pauli_compiler.compile_target"><code class="xref py py-func docutils literal notranslate"><span class="pre">compile_target()</span></code></a> returns a list of Pauli operators forming
+a sequence that reconstructs the target operator.</p>
+<p>To verify the result:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">paulie</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliStringCollection</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">PauliStringCollection</span><span class="p">(</span><span class="n">sequence</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">nested_adjoint</span><span class="p">(</span><span class="n">sequence</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Target:  </span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Result:  </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span> <span class="o">==</span> <span class="n">target</span>
 </pre></div>
 </div>
 </section>
@@ -429,20 +464,20 @@ fraction nearest to <span class="math notranslate nohighlight">\(0.706\)</span>.
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="commutator_graph.html"
+       href="optimal_universal_generators.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Commutator graph</p>
+        <p class="prev-next-title">Optimal universal generator sets</p>
       </div>
     </a>
     <a class="right-next"
-       href="pauli_compiler.html"
+       href="../api/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Algorithm</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -458,10 +493,24 @@ fraction nearest to <span class="math notranslate nohighlight">\(0.706\)</span>.
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Algorithm</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick start</a></li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="../_sources/user/optimal_universal_generators.rst.txt"
+      <li><a href="../_sources/user/pauli_compiler.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
