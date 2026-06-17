@@ -161,16 +161,25 @@ def test_sp_basis_errors() -> None:
 # Dispatcher & Direct Sum Tests
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    "algebra_type, n, expected_dim",
+    "algebra_type, n",
     [
-        (TypeAlgebra.U, 1, 1),
-        (TypeAlgebra.SO, 3, 3),  # n*(n-1)/2 -> 3*(2)/2 = 3
-        (TypeAlgebra.SU, 8, 63),  # n^2 - 1 -> 25 - 1 = 24
-        (TypeAlgebra.SP, 2, 10),  # n*(2n+1) -> 2*(5) = 10
+        (TypeAlgebra.U, 1),
+        (TypeAlgebra.SO, 3),
+        (TypeAlgebra.SU, 8),
+        (TypeAlgebra.SP, 2),
     ],
 )
-def test_get_n_basis_dispatch(algebra_type: TypeAlgebra, n: int, expected_dim: int) -> None:
+def test_get_n_basis_dispatch(algebra_type: TypeAlgebra, n: int) -> None:
     """Test that get_n_basis correctly calculates total dimensions for each algebra type."""
+    match algebra_type:
+        case TypeAlgebra.U:
+            expected_dim = 1
+        case TypeAlgebra.SO:
+            expected_dim = n * (n - 1) // 2
+        case TypeAlgebra.SU:
+            expected_dim = n**2 - 1
+        case TypeAlgebra.SP:
+            expected_dim = n * (2 * n + 1)
     assert get_n_basis(algebra_type, n) == expected_dim
 
 
