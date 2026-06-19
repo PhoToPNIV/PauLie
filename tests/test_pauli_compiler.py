@@ -6,7 +6,6 @@ import pytest
 from paulie import PauliString, PauliStringCollection
 from paulie.application.pauli_compiler import (
     compile_target, left_a_minimal, left_map_over_a,
-    PauliCompilerConfig, OptimalPauliCompiler,
     SubsystemCompilerConfig, SubsystemCompiler
 )
 
