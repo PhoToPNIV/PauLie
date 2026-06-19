@@ -69,11 +69,9 @@ test_adjoint_maps_strings = [
     if "".join(p) != left_length*"I"
 ]
 
-test_adjoint_maps_cases = [
-    (input_arg1, input_arg2)
-    for (input_arg1, input_arg2)
-    in combinations(test_adjoint_maps_strings, 2)
-]
+test_adjoint_maps_cases = list(
+    combinations(test_adjoint_maps_strings, 2)
+)
 
 @pytest.mark.parametrize("v_from, v_to", test_adjoint_maps_cases)
 def test_left_adjoint_map(v_from, v_to) -> None:
