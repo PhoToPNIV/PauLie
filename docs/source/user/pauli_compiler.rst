@@ -1,3 +1,6 @@
+Pauli compiler
+==============
+
 In quantum computing, a target gate :math:`P` is considered reachable if it can be generated from the
 available system operators :math:`A_m`. The Pauli compiler searches for a sequence
 :math:`(A_{i_1}, A_{i_2}, \dots, A_{i_k})` such that :math:`P` can be expressed
