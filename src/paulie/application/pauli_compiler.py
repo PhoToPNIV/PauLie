@@ -577,6 +577,10 @@ class OptimalPauliCompiler:
                 f"got {len(v_left)} and {len(w_right)}."
             )
 
+        if w_right.is_identity() and v_left.is_identity():
+            sequence: list[PauliString] | None = [v_left+w_right]
+            return sequence
+
         if w_right.is_identity():
             for a_s in self.a_left:
                 try:
